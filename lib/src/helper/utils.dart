@@ -1,6 +1,6 @@
 import 'dart:ui';
 
-import 'package:flutter_slider_drawer/flutter_slider_drawer.dart';
+import '../slider_direction.dart';
 
 class Utils {
   ///

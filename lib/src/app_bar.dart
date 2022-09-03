@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_slider_drawer/flutter_slider_drawer.dart';
-import 'package:flutter_slider_drawer/src/helper/slider_app_bar.dart';
-import 'package:flutter_slider_drawer/src/slider_direction.dart';
+import 'helper/slider_app_bar.dart';
+import 'slider_direction.dart';
 
 class SAppBar extends StatelessWidget {
   final Color splashColor;
