@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'app_bar.dart';
 import 'helper/slider_app_bar.dart';
-import 'helper/slider_shadow.dart';
 import 'slider_bar.dart';
-import 'helper/utils.dart';
 import 'slider_direction.dart';
 
 /// SliderDrawer which have two [child] and [slider] parameter
@@ -49,11 +47,6 @@ class SliderDrawer extends StatefulWidget {
   ///
   final double sliderOpenSize;
 
-  ///[double] you can change close drawer size by this parameter [sliderCloseSize]
-  /// by Default it is 0. if you set 30 then drawer will not close full it will display 30 size of width always
-  ///
-  final double sliderCloseSize;
-
   ///[bool] if you set [false] then swipe to open feature disable.
   ///By Default it's true
   ///
@@ -74,9 +67,6 @@ class SliderDrawer extends StatefulWidget {
   ///
   final Color splashColor;
 
-  ///[SliderShadow] you can enable shadow of [child] Widget by this parameter
-  final SliderShadow? sliderShadow;
-
   ///[slideDirection] you can change slide direction by this parameter [slideDirection]
   ///There are three type of [SlideDirection]
   ///[SlideDirection.RIGHT_TO_LEFT]
@@ -87,18 +77,45 @@ class SliderDrawer extends StatefulWidget {
   ///
   final SlideDirection slideDirection;
 
+  /// [animationCurve]自动对齐时的Curve
+  final Curve animationCurve;
+
+  ///  [enableSliderDrag] 是否能在SliderMenu区域拖动body的部分
+  final bool enableSliderDrag;
+
+  /// [enableTapBodyClose] 是否启用点击body关闭SliderMenu
+  final bool enableTapBodyClose;
+
+  /// [dragRightPadX] 向右拖动到，距离最右的距离
+  final double dragRightPadX;
+
+  /// [dragLeftMinX] 向左拖动时，能到达的最远距离(允许负数)
+  final double dragLeftMinX;
+
+  /// [backgroudColor] 整个容器的背景色
+  /// 在向右拖动时，到一定距离时会和Silder有间隙，这里可以看到背景色
+  final Color backgroudColor;
+
+  /// [foregroudMaxOpacity] 向右滑时，会根据滑动距离增加不透明度,用这个限制最大值。
+  final double foregroudMaxOpacity;
+
   const SliderDrawer(
       {Key? key,
       required this.slider,
       required this.child,
       this.isDraggable = true,
       this.animationDuration = 400,
-      this.sliderOpenSize = 265,
+      this.sliderOpenSize = 230,
       this.splashColor = Colors.transparent,
-      this.sliderCloseSize = 0,
       this.slideDirection = SlideDirection.LEFT_TO_RIGHT,
-      this.sliderShadow,
-      this.appBar = const SliderAppBar()})
+      this.appBar = const SliderAppBar(),
+      this.animationCurve = Curves.linear,
+      this.enableSliderDrag = false,
+      this.enableTapBodyClose = false,
+      this.dragRightPadX = 20.0,
+      this.dragLeftMinX = -30.0,
+      this.backgroudColor = Colors.white,
+      this.foregroudMaxOpacity = 0.5})
       : super(key: key);
 
   @override
@@ -107,47 +124,62 @@ class SliderDrawer extends StatefulWidget {
 
 class SliderDrawerState extends State<SliderDrawer>
     with TickerProviderStateMixin {
-  static const double WIDTH_GESTURE = 50.0;
-  static const double HEIGHT_GESTURE = 30.0;
-  static const double BLUR_SHADOW = 20.0;
-  double _percent = 0.0;
+  double _maxWidth = 0.0;
+  double _dragX = 0.0;
+  Color _foregroundColor = Colors.black.withOpacity(0);
 
-  AnimationController? _animationDrawerController;
+  late final double _dragMaxX;
+  late final double _dragMinX;
+
+  late AnimationController _controller;
   late Animation _animation;
 
-  bool _isDragging = false;
-
-  /// check whether drawer is open
-  bool get isDrawerOpen => _animationDrawerController!.isCompleted;
-
   /// it's provide [animationController] for handle and lister drawer animation
-  AnimationController? get animationController => _animationDrawerController;
+  AnimationController? get animationController => _controller;
 
   /// Toggle drawer
-  void toggle() => _animationDrawerController!.isCompleted
-      ? _animationDrawerController!.reverse()
-      : _animationDrawerController!.forward();
+  void toggle() {}
 
-  /// Open slider
-  void openSlider() => _animationDrawerController!.forward();
+  _moveAlign({double? to}) {
+    double end = 0.0;
+    if (to == null) {
+      if (_dragX > widget.sliderOpenSize / 2) {
+        end = widget.sliderOpenSize;
+      }
+    } else {
+      end = to;
+    }
 
-  /// Close slider
-  void closeSlider() => _animationDrawerController!.reverse();
+    _animation = Tween<double>(begin: _dragX, end: end).animate(
+        CurvedAnimation(parent: _controller, curve: widget.animationCurve));
+    _controller.reset();
+    _controller.forward();
+  }
+
+  _calcForegroundColor() {
+    var opacity = _dragX / widget.sliderOpenSize * widget.foregroudMaxOpacity;
+    if (opacity > widget.foregroudMaxOpacity)
+      opacity = widget.foregroudMaxOpacity;
+    if (opacity < 0) opacity = 0.0;
+    return Colors.black.withOpacity(opacity);
+  }
 
   @override
   void initState() {
     super.initState();
-
-    _animationDrawerController = AnimationController(
+    _controller = AnimationController(
         vsync: this,
         duration: Duration(milliseconds: widget.animationDuration));
+    _controller.addListener(() {
+      _dragX = _animation.value;
+      _foregroundColor = _calcForegroundColor();
+    });
+  }
 
-    _animation =
-        Tween<double>(begin: widget.sliderCloseSize, end: widget.sliderOpenSize)
-            .animate(CurvedAnimation(
-                parent: _animationDrawerController!,
-                curve: Curves.decelerate,
-                reverseCurve: Curves.decelerate));
+  @override
+  void dispose() {
+    super.dispose();
+    _controller.dispose();
   }
 
   @override
@@ -157,203 +189,103 @@ class SliderDrawerState extends State<SliderDrawer>
       appBarColor = (widget.appBar as SliderAppBar).appBarColor;
     }
     return LayoutBuilder(builder: (context, constrain) {
+      if (_maxWidth == 0.0) {
+        _maxWidth = constrain.maxWidth;
+        _initDragLimited();
+      }
       return Container(
-          child: Stack(children: <Widget>[
-        ///  Menu
-        SliderBar(
-          slideDirection: widget.slideDirection,
-          sliderMenu: widget.slider,
-          sliderMenuOpenSize: widget.sliderOpenSize,
-        ),
-
-        /// Displaying the  shadow
-        if (widget.sliderShadow != null) ...[
-          _Shadow(
-            animationDrawerController: _animationDrawerController,
-            slideDirection: widget.slideDirection,
-            sliderOpenSize: widget.sliderOpenSize,
-            animation: _animation,
-            sliderShadow: widget.sliderShadow!,
+          decoration: BoxDecoration(color: widget.backgroudColor),
+          foregroundDecoration: BoxDecoration(
+            color: _foregroundColor,
           ),
-        ],
+          child: Stack(children: <Widget>[
+            ///  Menu
+            if (widget.enableSliderDrag)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragEnd: _onHorizontalDragEnd,
+                onHorizontalDragUpdate: _onHorizontalDragUpdate,
+                child: SliderBar(
+                  slideDirection: widget.slideDirection,
+                  sliderMenu: widget.slider,
+                  sliderMenuOpenSize: widget.sliderOpenSize,
+                ),
+              )
+            else
+              SliderBar(
+                slideDirection: widget.slideDirection,
+                sliderMenu: widget.slider,
+                sliderMenuOpenSize: widget.sliderOpenSize,
+              ),
 
-        //Child
-        AnimatedBuilder(
-          animation: _animationDrawerController!,
-          builder: (_, child) {
-            return Transform.translate(
-              offset: Utils.getOffsetValues(
-                  widget.slideDirection, _animation.value),
-              child: child,
-            );
-          },
-          child: GestureDetector(
-            behavior: HitTestBehavior.deferToChild,
-            onHorizontalDragStart: _onHorizontalDragStart,
-            onHorizontalDragEnd: _onHorizontalDragEnd,
-            onHorizontalDragUpdate: (detail) =>
-                _onHorizontalDragUpdate(detail, constrain),
-            child: Container(
-              width: double.infinity,
-              height: double.infinity,
-              color: appBarColor,
-              child: Column(
-                children: <Widget>[
-                  if (widget.appBar != null && widget.appBar is SliderAppBar)
-                    SAppBar(
-                      slideDirection: widget.slideDirection,
-                      onTap: () => toggle(),
-                      animationController: _animationDrawerController!,
-                      splashColor: widget.splashColor,
-                      sliderAppBar: widget.appBar as SliderAppBar,
-                    ),
-                  if (widget.appBar != null && widget.appBar is! SliderAppBar)
-                    widget.appBar!,
-                  Expanded(child: widget.child),
-                ],
+            //Child
+            AnimatedBuilder(
+              animation: _controller,
+              builder: (_, child) {
+                return Transform.translate(
+                  offset: Offset(_dragX, 0),
+                  child: child,
+                );
+              },
+              child: GestureDetector(
+                behavior: HitTestBehavior.deferToChild,
+                onTap: _onTap,
+                onHorizontalDragEnd: _onHorizontalDragEnd,
+                onHorizontalDragUpdate: _onHorizontalDragUpdate,
+                child: Container(
+                  width: double.infinity,
+                  height: double.infinity,
+                  color: Colors.red,
+                  child: Column(
+                    children: <Widget>[
+                      if (widget.appBar != null &&
+                          widget.appBar is SliderAppBar)
+                        SAppBar(
+                          slideDirection: widget.slideDirection,
+                          onTap: () => toggle(),
+                          animationController: _controller,
+                          splashColor: widget.splashColor,
+                          sliderAppBar: widget.appBar as SliderAppBar,
+                        ),
+                      if (widget.appBar != null &&
+                          widget.appBar is! SliderAppBar)
+                        widget.appBar!,
+                      Expanded(child: widget.child),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-      ]));
+          ]));
     });
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-    _animationDrawerController!.dispose();
+  _initDragLimited() {
+    _dragMaxX = _maxWidth - widget.dragRightPadX;
+    _dragMinX = widget.dragLeftMinX;
   }
 
-  void _onHorizontalDragStart(DragStartDetails detail) {
-    if (!widget.isDraggable) return;
-
-    //Check use start dragging from left edge / right edge then enable dragging
-    if ((widget.slideDirection == SlideDirection.LEFT_TO_RIGHT &&
-                detail.localPosition.dx <= WIDTH_GESTURE) ||
-            (widget.slideDirection == SlideDirection.RIGHT_TO_LEFT &&
-                detail.localPosition.dx >=
-                    WIDTH_GESTURE) /*&&
-        detail.localPosition.dy <= widget.appBarHeight*/
-        ) {
-      this.setState(() {
-        _isDragging = true;
-      });
-    }
-    //Check use start dragging from top edge / bottom edge then enable dragging
-    if (widget.slideDirection == SlideDirection.TOP_TO_BOTTOM &&
-        detail.localPosition.dy >= HEIGHT_GESTURE) {
-      this.setState(() {
-        _isDragging = true;
-      });
+  _onTap() {
+    if (_controller.isCompleted && _dragX >= widget.sliderOpenSize) {
+      _moveAlign(to: 0.0);
     }
   }
 
   void _onHorizontalDragEnd(DragEndDetails detail) {
     if (!widget.isDraggable) return;
-    if (_isDragging) {
-      openOrClose();
+    _moveAlign();
+  }
+
+  void _onHorizontalDragUpdate(DragUpdateDetails detail) {
+    if (!widget.isDraggable) return;
+    var x = _dragX + detail.delta.dx;
+    if (x > _dragMaxX) x = _dragMaxX;
+    if (x < _dragMinX) x = _dragMinX;
+    if (x != _dragX) {
       setState(() {
-        _isDragging = false;
+        _dragX = x;
+        _foregroundColor = _calcForegroundColor();
       });
     }
-  }
-
-  void _onHorizontalDragUpdate(
-    DragUpdateDetails detail,
-    BoxConstraints constraints,
-  ) {
-    if (!widget.isDraggable) return;
-    // open drawer for left/right type drawer
-    if (_isDragging && widget.slideDirection == SlideDirection.LEFT_TO_RIGHT ||
-        widget.slideDirection == SlideDirection.RIGHT_TO_LEFT) {
-      var globalPosition = detail.globalPosition.dx;
-      globalPosition = globalPosition < 0 ? 0 : globalPosition;
-      double position = globalPosition / constraints.maxWidth;
-      var realPosition = widget.slideDirection == SlideDirection.LEFT_TO_RIGHT
-          ? position
-          : (1 - position);
-      move(realPosition);
-    }
-    // open drawer for top/bottom type drawer
-    /*if (dragging && widget.slideDirection == SlideDirection.TOP_TO_BOTTOM) {
-      var globalPosition = detail.globalPosition.dx;
-      globalPosition = globalPosition < 0 ? 0 : globalPosition;
-      double position = globalPosition / constraints.maxHeight;
-      var realPosition = widget.slideDirection == SlideDirection.TOP_TO_BOTTOM
-          ? position
-          : (1 - position);
-      move(realPosition);
-    }*/
-
-    // close drawer for left/right type drawer
-    if (isDrawerOpen &&
-        (widget.slideDirection == SlideDirection.LEFT_TO_RIGHT ||
-            widget.slideDirection == SlideDirection.RIGHT_TO_LEFT) &&
-        detail.delta.dx < 15) {
-      closeSlider();
-    }
-  }
-
-  move(double percent) {
-    _percent = percent;
-    _animationDrawerController!.value = percent;
-  }
-
-  openOrClose() {
-    if (_percent > 0.3) {
-      openSlider();
-    } else {
-      closeSlider();
-    }
-  }
-}
-
-class _Shadow extends StatelessWidget {
-  const _Shadow({
-    Key? key,
-    required AnimationController? animationDrawerController,
-    required this.animation,
-    required this.sliderShadow,
-    required this.slideDirection,
-    required this.sliderOpenSize,
-  })  : _animationDrawerController = animationDrawerController,
-        super(key: key);
-
-  final AnimationController? _animationDrawerController;
-  final Animation animation;
-  final SliderShadow sliderShadow;
-  final SlideDirection slideDirection;
-  final double sliderOpenSize;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animationDrawerController!,
-      builder: (_, child) {
-        return Transform.translate(
-          offset: Utils.getOffsetValueForShadow(
-              slideDirection, animation.value, sliderOpenSize),
-          child: child,
-        );
-      },
-      child: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: BoxDecoration(shape: BoxShape.rectangle, boxShadow: [
-          BoxShadow(
-            color: sliderShadow.shadowColor,
-            blurRadius: sliderShadow.shadowBlurRadius,
-            // soften the shadow
-            spreadRadius: sliderShadow.shadowSpreadRadius,
-            //extend the shadow
-            offset: Offset(
-              15.0, // Move to right 15  horizontally
-              15.0, // Move to bottom 15 Vertically
-            ),
-          )
-        ]),
-      ),
-    );
   }
 }
